@@ -128,25 +128,25 @@ const get = function (dom: DOMUtils) {
     ],
 
     bold: [
-      { inline: 'strong', remove: 'all' },
+      { inline: 'strong', remove: 'convert' },
       { inline: 'span', styles: { fontWeight: 'bold' }},
-      { inline: 'b', remove: 'all' }
+      { inline: 'b', remove: 'convert' }
     ],
 
     italic: [
-      { inline: 'em', remove: 'all' },
+      { inline: 'em', remove: 'convert' },
       { inline: 'span', styles: { fontStyle: 'italic' }},
-      { inline: 'i', remove: 'all' }
+      { inline: 'i', remove: 'convert' }
     ],
 
     underline: [
       { inline: 'span', styles: { textDecoration: 'underline' }, exact: true },
-      { inline: 'u', remove: 'all' }
+      { inline: 'u', remove: 'convert' }
     ],
 
     strikethrough: [
       { inline: 'span', styles: { textDecoration: 'line-through' }, exact: true },
-      { inline: 'strike', remove: 'all' }
+      { inline: 'strike', remove: 'convert' }
     ],
 
     forecolor: { inline: 'span', styles: { color: '%value' }, links: true, remove_similar: true, clear_child_styles: true },

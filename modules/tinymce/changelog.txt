@@ -2,6 +2,7 @@ Version 5.3.0 (TBD)
     Added `uploadUri` and `blobInfo` to `editorUpload.uploadImages` return type #TINY-4579
     Changed the `link`, `image` and `paste` plugins to use Promises to reduce the bundle size #TINY-4710
     Changed the default icons to be lazy loaded during initialization #TINY-4729
+    Changed inline style elements (strong, em, i, etc.) with a style attribute to convert to a span on removal
     Changed so base64 encoded urls are converted to blob urls when content is parsed #TINY-4727
     Fixed the `quickimage` button not restricting the file types to images #TINY-4715
     Fixed resize handlers displaying in the wrong location sometimes for remote images #TINY-4732

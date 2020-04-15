@@ -12,7 +12,7 @@ import DOMUtils from '../api/dom/DOMUtils';
 import Selection from '../api/dom/Selection';
 import TreeWalker from '../api/dom/TreeWalker';
 import Editor from '../api/Editor';
-import { FormatAttrOrStyleValue, FormatVars, RemoveFormat } from '../api/fmt/Format';
+import { FormatAttrOrStyleValue, FormatVars, RemoveFormatPartial } from '../api/fmt/Format';
 import * as Settings from '../api/Settings';
 import Tools from '../api/util/Tools';
 import * as Bookmarks from '../bookmark/Bookmarks';
@@ -99,7 +99,7 @@ const wrapWithSiblings = (dom: DOMUtils, node: Node, next: boolean, name: string
  * @param {Object} format Format object o match with.
  * @return {boolean} true/false if the format matches.
  */
-const matchName = function (dom: DOMUtils, node: Node, format) {
+const matchName = function (dom: DOMUtils, node: Node, format: RemoveFormatPartial) {
   // Check for inline match
   if (isEq(node, format.inline)) {
     return true;
@@ -116,7 +116,7 @@ const matchName = function (dom: DOMUtils, node: Node, format) {
   }
 };
 
-const isColorFormatAndAnchor = function (node: Node, format) {
+const isColorFormatAndAnchor = function (node: Node, format: RemoveFormatPartial) {
   return format.links && node.nodeName === 'A';
 };
 
@@ -143,7 +143,7 @@ const find = function (dom: DOMUtils, node: Node, next: boolean, inc?: boolean) 
  * @param {Object} format Format rule.
  * @return {Node} Input node.
  */
-const removeNode = function (ed: Editor, node: Node, format) {
+const removeNode = function (ed: Editor, node: Node, format: RemoveFormatPartial) {
   const parentNode = node.parentNode;
   let rootBlockElm;
   const dom = ed.dom, forcedRootBlock = Settings.getForcedRootBlock(ed);
@@ -189,6 +189,17 @@ const removeNode = function (ed: Editor, node: Node, format) {
   dom.remove(node, true);
 };
 
+// Convert node to different node e.g. strong to span
+const convertNode = (ed: Editor, node: Node, newNode: string, format: RemoveFormatPartial) => {
+  // Limit to inline elements to avoid complications with root blocks
+  // Also check the node has child elements as dom.rename throws an exception otherwise
+  if (format.inline && node.hasChildNodes()) {
+    ed.dom.rename(node, newNode);
+    return true;
+  }
+  return false;
+};
+
 /**
  * Removes the specified format for the specified node. It will also remove the node if it doesn't have
  * any attributes if the format specifies it to do so.
@@ -200,7 +211,7 @@ const removeNode = function (ed: Editor, node: Node, format) {
  * @param {Node} compareNode Optional compare node, if specified the styles will be compared to that node.
  * @return {Boolean} True/false if the node was removed or not.
  */
-const removeFormat = function (ed: Editor, format: RemoveFormat, vars?: FormatVars, node?: Node, compareNode?: Node) {
+const removeFormat = function (ed: Editor, format: RemoveFormatPartial, vars?: FormatVars, node?: Node, compareNode?: Node) {
   let stylesModified: boolean;
   const dom = ed.dom;
 
@@ -213,7 +224,7 @@ const removeFormat = function (ed: Editor, format: RemoveFormat, vars?: FormatVa
   const elm = node as DomElement;
 
   // Should we compare with format attribs and styles
-  if (format.remove !== 'all') {
+  if (format.remove !== 'all' && format.remove !== 'convert') {
     // Remove styles
     each(format.styles, function (value: FormatAttrOrStyleValue, name: string) {
       value = FormatUtils.normalizeStyleValue(dom, FormatUtils.replaceVars(value, vars), name);
@@ -303,6 +314,27 @@ const removeFormat = function (ed: Editor, format: RemoveFormat, vars?: FormatVa
     }
   }
 
+  // remove: 'convert' - remove all attributes except the style attribute and convert the element to a span
+  // Applies to styling elements like strong, em, i, u, etc. so that if they have a style attribute, the style attribute can be kept but the styling element is removed
+  if (format.remove === 'convert') {
+    // Check if style atrribute is present on the styling element
+    if (dom.getAttrib(elm, 'style') || dom.getAttrib(elm, 'data-mce-style')) {
+      // Remove all attributes except for the style attribute
+      each(dom.getAttribs(elm), (attr) => {
+        if (attr) {
+          const attrName = attr.nodeName;
+          if (attrName !== 'style' && attrName !== 'data-mce-style') {
+            elm.removeAttribute(attrName);
+          }
+        }
+      });
+      // Conert styling element to span if possible
+      if (convertNode(ed, elm, 'span', format)) {
+        return true;
+      }
+    }
+  }
+
   // Remove the inline child if it's empty for example <b> or <span>
   if (format.remove !== 'none') {
     removeNode(ed, elm, format);
@@ -330,7 +362,7 @@ const findFormatRoot = function (editor: Editor, container: Node, name: string, 
   return formatRoot;
 };
 
-const wrapAndSplit = function (editor: Editor, formatList, formatRoot: Node, container: Node, target: Node, split: boolean, format, vars: FormatVars) {
+const wrapAndSplit = function (editor: Editor, formatList, formatRoot: Node, container: Node, target: Node, split: boolean, format: RemoveFormatPartial, vars: FormatVars) {
   let parent, clone, lastClone, firstClone, i, formatRootParent;
   const dom = editor.dom;
 
@@ -377,8 +409,9 @@ const wrapAndSplit = function (editor: Editor, formatList, formatRoot: Node, con
   return container;
 };
 
-const remove = function (ed: Editor, name: string, vars?: FormatVars, node?: Node | Range, similar?) {
-  const formatList = ed.formatter.get(name), format = formatList[0];
+const remove = function (ed: Editor, name: string, vars?: FormatVars, node?: Node | Range, similar?: boolean) {
+  const formatList = ed.formatter.get(name) as RemoveFormatPartial[];
+  const format = formatList[0];
   let bookmark, rng, contentEditable = true;
   const dom = ed.dom;
   const selection: Selection = ed.selection;
@@ -396,7 +429,7 @@ const remove = function (ed: Editor, name: string, vars?: FormatVars, node?: Nod
 
   // Merges the styles for each node
   const process = function (node: Node) {
-    let children: Node[], i, l, lastContentEditable, hasContentEditableState;
+    let children: Node[], lastContentEditable: boolean, hasContentEditableState: boolean;
 
     // Node has a contentEditable value
     if (NodeType.isElement(node) && dom.getContentEditable(node)) {
@@ -410,19 +443,19 @@ const remove = function (ed: Editor, name: string, vars?: FormatVars, node?: Nod
 
     // Process current node
     if (contentEditable && !hasContentEditableState) {
-      for (i = 0, l = formatList.length; i < l; i++) {
-        if (removeFormat(ed, formatList[i], vars, node, node)) {
-          break;
+      each(formatList, (fmt) => {
+        if (removeFormat(ed, fmt, vars, node, node)) {
+          return; // Break from loop
         }
-      }
+      });
     }
 
     // Process the children
     if (format.deep) {
       if (children.length) {
-        for (i = 0, l = children.length; i < l; i++) {
-          process(children[i]);
-        }
+        each(children, (child) => {
+          process(child);
+        });
 
         if (hasContentEditableState) {
           contentEditable = lastContentEditable; // Restore last contentEditable state from stack
@@ -537,18 +570,21 @@ const remove = function (ed: Editor, name: string, vars?: FormatVars, node?: Nod
       each(nodes, function (node) {
         process(node);
 
-        // Remove parent span if it only contains text-decoration: underline, yet a parent node is also underlined.
-        if (NodeType.isElement(node) && ed.dom.getStyle(node, 'text-decoration') === 'underline' &&
-          node.parentNode && FormatUtils.getTextDecoration(dom, node.parentNode) === 'underline') {
-          removeFormat(ed, {
-            deep: false,
-            exact: true,
-            inline: 'span',
-            styles: {
-              textDecoration: 'underline'
-            }
-          }, null, node);
-        }
+        // Remove parent span if it only contains text-decoration, yet a parent node also has the same text decoration.
+        const textDecorations = [ 'underline', 'line-through', 'overline' ];
+        each(textDecorations, (decoration) => {
+          if (NodeType.isElement(node) && ed.dom.getStyle(node, 'text-decoration') === decoration &&
+            node.parentNode && FormatUtils.getTextDecoration(dom, node.parentNode) === decoration) {
+            removeFormat(ed, {
+              deep: false,
+              exact: true,
+              inline: 'span',
+              styles: {
+                textDecoration: decoration
+              }
+            }, null, node);
+          }
+        });
       });
     });
   };
